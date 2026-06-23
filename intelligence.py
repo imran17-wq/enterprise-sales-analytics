@@ -1,0 +1,425 @@
+"""
+intelligence.py
+===============
+Enterprise BI analytical backends for the Sales Analytics Dashboard.
+
+Functions:
+  - generate_executive_summary(df, kpis) -> dict
+  - get_top_movers(df)                  -> dict
+  - detect_anomalies(df)                -> dict
+  - run_what_if(df, sliders)            -> dict
+  - build_excel_export(df, kpis)        -> BytesIO
+"""
+
+import io
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import IsolationForest
+from scipy import stats as scipy_stats
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 1 — Executive Summary Generator
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_executive_summary(df: pd.DataFrame, kpis: dict) -> dict:
+    """
+    Deterministically analyse the filtered DataFrame and return a structured
+    executive summary with drivers, risks, and recommended actions.
+    """
+    if df.empty:
+        return {"headline": "No data available.", "drivers": [], "risks": [], "actions": []}
+
+    revenue   = kpis["total_revenue"]
+    ret_rate  = kpis["return_rate"]
+
+    # ── Revenue trend ────────────────────────────────────────────────────────
+    monthly = df.groupby("year_month")["net_revenue"].sum().sort_index()
+    if len(monthly) >= 2:
+        mid       = max(1, len(monthly) // 2)
+        first_h   = monthly.iloc[:mid].mean()
+        second_h  = monthly.iloc[mid:].mean()
+        trend_pct = ((second_h - first_h) / first_h * 100) if first_h > 0 else 0
+        trend_dir = "increased" if trend_pct >= 0 else "declined"
+        trend_str = f"Revenue {trend_dir} {abs(trend_pct):.1f}% in the recent period vs. the earlier period."
+    else:
+        trend_pct = 0
+        trend_str = f"Total revenue stands at ₹{revenue:,.0f}."
+
+    # ── Product analysis ─────────────────────────────────────────────────────
+    prod_rev  = df.groupby("product")["net_revenue"].sum().sort_values(ascending=False)
+    top_prod  = prod_rev.index[0]
+    top_prod_pct = prod_rev.iloc[0] / revenue * 100 if revenue > 0 else 0
+
+    # Product growth (first half vs second half by time)
+    prod_drivers = []
+    prod_risks   = []
+    if len(monthly) >= 2:
+        mid_ym = monthly.index[len(monthly) // 2]
+        for prod in prod_rev.index[:5]:
+            p_df = df[df["product"] == prod]
+            p_m  = p_df.groupby("year_month")["net_revenue"].sum().sort_index()
+            if len(p_m) >= 2:
+                p_mid   = max(1, len(p_m) // 2)
+                p_first = p_m.iloc[:p_mid].mean()
+                p_sec   = p_m.iloc[p_mid:].mean()
+                p_delta = ((p_sec - p_first) / p_first * 100) if p_first > 0 else 0
+                if p_delta >= 5:
+                    prod_drivers.append(f"{prod} revenue grew {p_delta:.1f}%")
+                elif p_delta <= -5:
+                    prod_risks.append(f"{prod} revenue declined {abs(p_delta):.1f}%")
+
+    # ── Region analysis ──────────────────────────────────────────────────────
+    reg_rev  = df.groupby("region")["net_revenue"].sum().sort_values(ascending=False)
+    top_reg  = reg_rev.index[0]
+    bot_reg  = reg_rev.index[-1]
+    top_reg_pct = reg_rev.iloc[0] / revenue * 100 if revenue > 0 else 0
+
+    # ── Promotion analysis ───────────────────────────────────────────────────
+    promo_aov = df.groupby("promotion_used")["net_revenue"].mean()
+    best_promo = promo_aov.idxmax() if not promo_aov.empty else "N/A"
+
+    # ── Return rate analysis ─────────────────────────────────────────────────
+    high_ret_prod = df.groupby("product")["returned"].mean()
+    worst_ret_prod = high_ret_prod.idxmax() if not high_ret_prod.empty else "N/A"
+    worst_ret_rate = high_ret_prod.max() * 100 if not high_ret_prod.empty else 0
+
+    # ── Customer analysis ────────────────────────────────────────────────────
+    cust_rev = df.groupby("customer_type")["net_revenue"].sum()
+    top_cust = cust_rev.idxmax() if not cust_rev.empty else "N/A"
+
+    # ── Build structured output ──────────────────────────────────────────────
+    headline = f"{trend_str} {top_prod} leads product revenue with {top_prod_pct:.1f}% share. {top_reg} region is the top market."
+
+    drivers = [
+        f"{top_prod} contributes {top_prod_pct:.1f}% of total revenue",
+        f"{top_reg} region generates {top_reg_pct:.1f}% of total revenue",
+        f"{best_promo} is the highest-performing promotion by average order value",
+        f"{top_cust} customers are the leading revenue segment",
+    ] + prod_drivers[:2]
+
+    risks = []
+    if ret_rate > 10:
+        risks.append(f"Return rate is elevated at {ret_rate:.1f}% — review quality for {worst_ret_prod} ({worst_ret_rate:.1f}% returns)")
+    if trend_pct < -5:
+        risks.append(f"Revenue trend is declining — immediate review recommended")
+    risks.append(f"{bot_reg} region is underperforming vs. all other regions")
+    risks += prod_risks[:2]
+
+    actions = [
+        f"Increase inventory allocation for {top_prod} to sustain momentum",
+        f"Launch targeted campaigns in {bot_reg} to close the revenue gap",
+        f"Scale the {best_promo} promotion — it demonstrates the highest customer AOV",
+    ]
+    if ret_rate > 8:
+        actions.append(f"Initiate quality review for {worst_ret_prod} to reduce the {worst_ret_rate:.1f}% return rate")
+
+    return {
+        "headline":   headline,
+        "drivers":    drivers,
+        "risks":      risks,
+        "actions":    actions,
+        "trend_pct":  round(trend_pct, 1),
+        "top_prod":   top_prod,
+        "top_reg":    top_reg,
+        "bot_reg":    bot_reg,
+        "best_promo": best_promo,
+        "return_rate": round(ret_rate, 1),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 2 — Top Movers Intelligence
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_top_movers(df: pd.DataFrame) -> dict:
+    """
+    Compare first half vs second half of the time window to identify the
+    top growing, declining, and key performers across products and regions.
+    """
+    if df.empty:
+        return {}
+
+    monthly = df.groupby("year_month")["net_revenue"].sum().sort_index()
+    mid = max(1, len(monthly) // 2)
+
+    # ── Product movers ───────────────────────────────────────────────────────
+    prod_rows = []
+    for prod in df["product"].unique():
+        p_m = df[df["product"] == prod].groupby("year_month")["net_revenue"].sum().sort_index()
+        if len(p_m) < 2:
+            continue
+        p_mid   = max(1, len(p_m) // 2)
+        p_first = p_m.iloc[:p_mid].sum()
+        p_sec   = p_m.iloc[p_mid:].sum()
+        delta   = ((p_sec - p_first) / p_first * 100) if p_first > 0 else 0
+        prod_rows.append({"product": prod, "delta_pct": delta,
+                          "period1_rev": p_first, "period2_rev": p_sec})
+    prod_mdf = pd.DataFrame(prod_rows).sort_values("delta_pct", ascending=False) if prod_rows else pd.DataFrame()
+
+    # ── Region movers ────────────────────────────────────────────────────────
+    reg_rows = []
+    for reg in df["region"].unique():
+        r_m = df[df["region"] == reg].groupby("year_month")["net_revenue"].sum().sort_index()
+        if len(r_m) < 2:
+            continue
+        r_mid   = max(1, len(r_m) // 2)
+        r_first = r_m.iloc[:r_mid].sum()
+        r_sec   = r_m.iloc[r_mid:].sum()
+        delta   = ((r_sec - r_first) / r_first * 100) if r_first > 0 else 0
+        reg_rows.append({"region": reg, "delta_pct": delta,
+                         "total_rev": df[df["region"] == reg]["net_revenue"].sum()})
+    reg_mdf = pd.DataFrame(reg_rows).sort_values("delta_pct", ascending=False) if reg_rows else pd.DataFrame()
+
+    # ── Return rate leaders ──────────────────────────────────────────────────
+    ret_by_prod = df.groupby("product")["returned"].mean().sort_values(ascending=False)
+    worst_ret   = ret_by_prod.index[0] if not ret_by_prod.empty else "N/A"
+
+    # ── Best promotion ────────────────────────────────────────────────────────
+    promo_aov = df.groupby("promotion_used")["net_revenue"].mean()
+    best_promo = promo_aov.idxmax() if not promo_aov.empty else "N/A"
+    best_promo_aov = promo_aov.max() if not promo_aov.empty else 0
+
+    # ── Top revenue ───────────────────────────────────────────────────────────
+    prod_total = df.groupby("product")["net_revenue"].sum()
+    top_rev_prod = prod_total.idxmax() if not prod_total.empty else "N/A"
+
+    reg_total = df.groupby("region")["net_revenue"].sum()
+    top_rev_reg  = reg_total.idxmax() if not reg_total.empty else "N/A"
+    bot_rev_reg  = reg_total.idxmin() if not reg_total.empty else "N/A"
+
+    return {
+        "top_growing_product":  prod_mdf.iloc[0]["product"]   if not prod_mdf.empty else "N/A",
+        "top_growing_pct":      prod_mdf.iloc[0]["delta_pct"] if not prod_mdf.empty else 0,
+        "top_declining_product":prod_mdf.iloc[-1]["product"]  if not prod_mdf.empty else "N/A",
+        "top_declining_pct":    prod_mdf.iloc[-1]["delta_pct"]if not prod_mdf.empty else 0,
+        "top_revenue_product":  top_rev_prod,
+        "top_revenue_region":   top_rev_reg,
+        "worst_revenue_region": bot_rev_reg,
+        "highest_return_product": worst_ret,
+        "highest_return_rate":  float(ret_by_prod.iloc[0] * 100) if not ret_by_prod.empty else 0,
+        "best_promo":           best_promo,
+        "best_promo_aov":       best_promo_aov,
+        "product_movers":       prod_mdf,
+        "region_movers":        reg_mdf,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 5 — What-If Simulator
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_what_if(df: pd.DataFrame, discount_delta: float,
+                demand_delta: float, return_delta: float) -> dict:
+    """
+    Simple multiplicative scenario model.
+
+    Parameters (all as percentage-point changes):
+      discount_delta  : Δ discount %. Higher discount → lower net margin per unit.
+      demand_delta    : Δ demand %. Higher demand → more orders.
+      return_delta    : Δ return rate %. Higher returns → lower effective revenue.
+
+    Returns projected KPIs.
+    """
+    if df.empty:
+        return {}
+
+    base_revenue = df["net_revenue"].sum()
+    base_orders  = df["order_id"].nunique()
+    base_aov     = df["net_revenue"].mean()
+    base_returns = df["returned"].mean() * 100
+
+    # Demand multiplier: +1% demand → +1% revenue
+    demand_mult = 1 + demand_delta / 100
+
+    # Discount penalty: every +1% discount cuts margin by ~1.5% (elasticity approx)
+    discount_mult = 1 - (discount_delta / 100) * 1.5
+
+    # Return penalty: +1% return rate → −0.8% effective revenue (partial refund model)
+    return_mult = 1 - (return_delta / 100) * 0.8
+
+    proj_revenue = base_revenue * demand_mult * max(discount_mult, 0.5) * max(return_mult, 0.5)
+    proj_orders  = base_orders  * demand_mult
+    proj_aov     = proj_revenue / proj_orders if proj_orders > 0 else 0
+    proj_returns = max(0, base_returns + return_delta)
+
+    delta_rev = proj_revenue - base_revenue
+    delta_pct = delta_rev / base_revenue * 100 if base_revenue > 0 else 0
+
+    return {
+        "base_revenue":   base_revenue,
+        "proj_revenue":   proj_revenue,
+        "delta_revenue":  delta_rev,
+        "delta_pct":      delta_pct,
+        "base_orders":    base_orders,
+        "proj_orders":    proj_orders,
+        "base_aov":       base_aov,
+        "proj_aov":       proj_aov,
+        "base_returns":   base_returns,
+        "proj_returns":   proj_returns,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 6 — Anomaly Detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_anomalies(df: pd.DataFrame) -> dict:
+    """
+    Run anomaly detection on monthly aggregates using:
+      1. Z-score (|z| > 2) on revenue
+      2. IsolationForest on [revenue, orders, return_rate]
+
+    Returns a dict with:
+      - monthly_df: DataFrame with anomaly flags & z-scores
+      - anomalies:  list of structured anomaly dicts for display
+    """
+    if df.empty or "year_month" not in df.columns:
+        return {"monthly_df": pd.DataFrame(), "anomalies": []}
+
+    monthly = (
+        df.groupby("year_month")
+        .agg(
+            revenue=("net_revenue",  "sum"),
+            orders=("order_id",      "nunique"),
+            return_rate=("returned", "mean"),
+        )
+        .reset_index()
+        .sort_values("year_month")
+    )
+
+    if len(monthly) < 4:
+        return {"monthly_df": monthly, "anomalies": []}
+
+    # ── Z-score ──────────────────────────────────────────────────────────────
+    monthly["rev_z"]    = scipy_stats.zscore(monthly["revenue"].fillna(0))
+    monthly["order_z"]  = scipy_stats.zscore(monthly["orders"].fillna(0))
+    monthly["return_z"] = scipy_stats.zscore(monthly["return_rate"].fillna(0))
+
+    # ── IsolationForest ───────────────────────────────────────────────────────
+    feat_cols = ["revenue", "orders", "return_rate"]
+    X = monthly[feat_cols].fillna(0).values
+    iso = IsolationForest(contamination=0.15, random_state=42)
+    monthly["iso_flag"] = iso.fit_predict(X)  # -1 = anomaly, 1 = normal
+
+    # ── Combine: flag row if z-score OR isolation forest fires ───────────────
+    monthly["is_anomaly"] = (
+        (monthly["rev_z"].abs() > 2) |
+        (monthly["order_z"].abs() > 2) |
+        (monthly["return_z"].abs() > 2) |
+        (monthly["iso_flag"] == -1)
+    )
+
+    # ── Build structured anomaly list ─────────────────────────────────────────
+    anomalies = []
+    for _, row in monthly[monthly["is_anomaly"]].iterrows():
+        reasons = []
+        if abs(row["rev_z"]) > 2:
+            direction = "spike" if row["rev_z"] > 0 else "drop"
+            reasons.append(f"Revenue {direction} (z={row['rev_z']:.1f})")
+        if abs(row["order_z"]) > 2:
+            direction = "surge" if row["order_z"] > 0 else "drop"
+            reasons.append(f"Order count {direction} (z={row['order_z']:.1f})")
+        if abs(row["return_z"]) > 2:
+            direction = "spike" if row["return_z"] > 0 else "drop"
+            reasons.append(f"Return rate {direction} (z={row['return_z']:.1f})")
+        if row["iso_flag"] == -1 and not reasons:
+            reasons.append("Statistical outlier detected by Isolation Forest")
+
+        severity = "🔴 High" if abs(row["rev_z"]) > 2.5 else "🟡 Medium"
+        anomalies.append({
+            "month":    row["year_month"],
+            "revenue":  row["revenue"],
+            "orders":   row["orders"],
+            "ret_rate": row["return_rate"] * 100,
+            "reasons":  reasons,
+            "severity": severity,
+            "rev_z":    row["rev_z"],
+        })
+
+    return {"monthly_df": monthly, "anomalies": anomalies}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 7 — Excel Export Builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
+    """
+    Build a multi-sheet Excel workbook and return it as bytes.
+
+    Sheets:
+      1. KPI Summary
+      2. Product Summary
+      3. Region Summary
+      4. Raw Data (sample up to 5000 rows)
+    """
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+        wb  = writer.book
+
+        # ── Formats ──────────────────────────────────────────────────────────
+        hdr_fmt = wb.add_format({"bold": True, "bg_color": "#6C63FF",
+                                  "font_color": "#FFFFFF", "border": 1})
+        num_fmt = wb.add_format({"num_format": "#,##0.00", "border": 1})
+        pct_fmt = wb.add_format({"num_format": "0.00%",   "border": 1})
+        txt_fmt = wb.add_format({"border": 1})
+
+        def write_sheet(sheet_name, data_df):
+            data_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+            ws = writer.sheets[sheet_name]
+            for col_num, col_name in enumerate(data_df.columns):
+                ws.write(0, col_num, col_name, hdr_fmt)
+                ws.set_column(col_num, col_num, max(15, len(str(col_name)) + 4))
+
+        # ── Sheet 1: KPI Summary ─────────────────────────────────────────────
+        kpi_df = pd.DataFrame([
+            {"Metric": "Total Revenue",     "Value": kpis.get("total_revenue", 0)},
+            {"Metric": "Total Orders",      "Value": kpis.get("total_orders", 0)},
+            {"Metric": "Total Qty Sold",    "Value": kpis.get("total_quantity", 0)},
+            {"Metric": "Avg Order Value",   "Value": kpis.get("avg_order_value", 0)},
+            {"Metric": "Return Rate (%)",   "Value": kpis.get("return_rate", 0)},
+            {"Metric": "Best Region",       "Value": kpis.get("best_region", "")},
+            {"Metric": "Best Product",      "Value": kpis.get("best_product", "")},
+            {"Metric": "Applied Filters",   "Value": str(filters)},
+        ])
+        write_sheet("KPI Summary", kpi_df)
+
+        # ── Sheet 2: Product Summary ──────────────────────────────────────────
+        prod_df = (
+            df.groupby("product")
+            .agg(
+                Total_Revenue=("net_revenue", "sum"),
+                Total_Orders=("order_id",    "nunique"),
+                Avg_Order_Value=("net_revenue", "mean"),
+                Return_Rate=("returned",     "mean"),
+            )
+            .reset_index()
+            .sort_values("Total_Revenue", ascending=False)
+        )
+        prod_df["Return_Rate"] = prod_df["Return_Rate"] * 100
+        write_sheet("Product Summary", prod_df)
+
+        # ── Sheet 3: Region Summary ───────────────────────────────────────────
+        reg_df = (
+            df.groupby("region")
+            .agg(
+                Total_Revenue=("net_revenue", "sum"),
+                Total_Orders=("order_id",    "nunique"),
+                Avg_Order_Value=("net_revenue", "mean"),
+                Return_Rate=("returned",     "mean"),
+            )
+            .reset_index()
+            .sort_values("Total_Revenue", ascending=False)
+        )
+        reg_df["Return_Rate"] = reg_df["Return_Rate"] * 100
+        write_sheet("Region Summary", reg_df)
+
+        # ── Sheet 4: Raw Data ─────────────────────────────────────────────────
+        raw_cols = ["date", "region", "product", "quantity_sold", "unit_price",
+                    "discount", "net_revenue", "customer_type", "payment_method",
+                    "promotion_used", "returned"]
+        raw_cols = [c for c in raw_cols if c in df.columns]
+        write_sheet("Raw Data", df[raw_cols].head(5000).reset_index(drop=True))
+
+    return buf.getvalue()
