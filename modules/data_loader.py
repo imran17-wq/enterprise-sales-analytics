@@ -14,7 +14,8 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DEFAULT_FILE = "Product-Sales-Region (1).xlsx"
+import os
+DEFAULT_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "Product-Sales-Region.xlsx")
 SHEET_NAME = 0          # first sheet
 EXPECTED_MIN_ROWS = 100  # sanity-check threshold
 

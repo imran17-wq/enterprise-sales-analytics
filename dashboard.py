@@ -29,9 +29,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ── Internal modules ─────────────────────────────────────────────────────────
-from data_loader         import load_raw_data
-from data_cleaning       import clean_data
-from feature_engineering import (
+from modules.data_loader         import load_raw_data
+from modules.data_cleaning       import clean_data
+from modules.feature_engineering import (
     engineer_features,
     build_monthly_sales,
     build_region_summary,
@@ -43,8 +43,8 @@ from feature_engineering import (
     build_return_heatmap,
     build_discount_revenue,
 )
-from forecasting import train_forecast_model, forecast_future, analyze_product_growth
-from utils import (
+from modules.forecasting import train_forecast_model, forecast_future, analyze_product_growth
+from modules.utils import (
     compute_kpis,
     generate_insights,
     generate_root_cause_analysis,
@@ -57,14 +57,14 @@ from utils import (
     PRODUCT_COLORS,
     get_theme_css,
 )
-from intelligence import (
+from modules.intelligence import (
     generate_executive_summary,
     get_top_movers,
     detect_anomalies,
     run_what_if,
     build_excel_export,
 )
-from explorer import render_business_explorer
+from modules.explorer import render_business_explorer
 
 # Strictly enforce dark mode
 st.session_state.theme = "dark"

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from utils import get_chart_layout, fmt_currency, fmt_number, fmt_pct
+from modules.utils import get_chart_layout, fmt_currency, fmt_number, fmt_pct
 
 METRIC_MAPPING = {
     "Revenue": ("net_revenue", "sum", "currency"),
