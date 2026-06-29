@@ -529,8 +529,8 @@ def build_pdf_export(df: pd.DataFrame, kpis: dict, filters: dict,
     """
     try:
         from fpdf import FPDF
-    except ImportError:
-        raise ImportError("fpdf2 is required for PDF export. Add 'fpdf2>=2.7.0' to requirements.txt")
+    except ImportError as e:
+        raise ImportError(f"PDF export requires fpdf2. Exact error: {e}")
 
     import datetime
 
