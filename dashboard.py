@@ -1600,7 +1600,7 @@ with tab_export:
     st.markdown("### 📤 Export Center")
     st.markdown("<p style='color:var(--text-secondary); margin-top:-8px;'>Download your filtered data, summaries, and reports in multiple formats.</p>", unsafe_allow_html=True)
 
-    ex1, ex2, ex3 = st.columns(3, gap="medium")
+    ex1, ex2 = st.columns(2, gap="medium")
 
     with ex1:
         st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
@@ -1608,7 +1608,7 @@ with tab_export:
             <div style="font-size:2.5rem;">📊</div>
             <h4 style="margin:8px 0 4px 0; color:var(--text-primary);">Excel Report</h4>
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
-            4 sheets: KPIs · Products · Regions · Raw Data (up to 5,000 rows)</p>
+            6 sheets: KPIs · Products · Regions · Monthly Trends · Promotions · Raw Data</p>
         </div>""", unsafe_allow_html=True)
         excel_bytes = build_excel_export(df, kpis, st.session_state.applied_filters)
         st.download_button(
@@ -1643,21 +1643,54 @@ with tab_export:
             use_container_width=True,
         )
 
+    ex3, ex4 = st.columns(2, gap="medium")
+
     with ex3:
         st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
             border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
             <div style="font-size:2.5rem;">📋</div>
             <h4 style="margin:8px 0 4px 0; color:var(--text-primary);">Filtered CSV</h4>
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
-            Export the full filtered dataset as a CSV file for further analysis</p>
+            Full filtered dataset with all key columns as a ready-to-use CSV file</p>
         </div>""", unsafe_allow_html=True)
-        csv_cols = [c for c in ["date","region","product","quantity_sold","unit_price",
-                    "discount","net_revenue","customer_type","payment_method",
-                    "promotion_used","returned"] if c in df.columns]
+        csv_cols = [c for c in ["date", "order_id", "region", "product", "salesperson",
+                    "customer_name", "customer_type", "quantity_sold", "unit_price",
+                    "discount", "net_revenue", "shipping_cost", "payment_method",
+                    "promotion_used", "returned", "store_location", "region_manager"] if c in df.columns]
         csv_bytes = df[csv_cols].to_csv(index=False).encode()
         st.download_button(
             "📥 Download CSV", data=csv_bytes,
             file_name="filtered_sales_data.csv", mime="text/csv",
+            use_container_width=True,
+        )
+
+    with ex4:
+        st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
+            border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
+            <div style="font-size:2.5rem;">🗂️</div>
+            <h4 style="margin:8px 0 4px 0; color:var(--text-primary);">JSON Export</h4>
+            <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
+            KPIs + product & region summaries in structured JSON for API / developer use</p>
+        </div>""", unsafe_allow_html=True)
+        import json
+        prod_summary = df.groupby("product")["net_revenue"].sum().round(2).to_dict()
+        reg_summary  = df.groupby("region")["net_revenue"].sum().round(2).to_dict()
+        promo_summary = df.groupby("promotion_used")["net_revenue"].sum().round(2).to_dict()
+        json_payload = {
+            "meta": {
+                "total_rows": len(df),
+                "filters":    st.session_state.applied_filters,
+            },
+            "kpis": {k: (round(v, 2) if isinstance(v, float) else v)
+                     for k, v in kpis.items()},
+            "product_revenue":   prod_summary,
+            "region_revenue":    reg_summary,
+            "promotion_revenue": promo_summary,
+        }
+        json_bytes = json.dumps(json_payload, indent=2, default=str).encode()
+        st.download_button(
+            "📥 Download JSON", data=json_bytes,
+            file_name="sales_summary.json", mime="application/json",
             use_container_width=True,
         )
 
@@ -1666,6 +1699,8 @@ with tab_export:
     <div style="background:rgba(108,99,255,0.08); border:1px solid rgba(108,99,255,0.2);
         border-radius:10px; padding:14px 18px; font-size:0.82rem; color:var(--text-secondary);">
         <b>📌 Export Notes:</b> All exports respect your current sidebar filters and date range.
-        The Excel file contains formatted sheets with auto-sized columns.
-        Full PDF export (with embedded charts) requires a server-side PDF engine — contact your administrator.
+        The Excel file contains <b>6 formatted sheets</b> with auto-sized columns, branded headers,
+        and a month-over-month trends column. JSON export is ideal for developers or piping into other tools.
     </div>""", unsafe_allow_html=True)
+
+

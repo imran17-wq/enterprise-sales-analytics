@@ -352,74 +352,147 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
       1. KPI Summary
       2. Product Summary
       3. Region Summary
-      4. Raw Data (sample up to 5000 rows)
+      4. Monthly Trends  [NEW]
+      5. Promotions Analysis  [NEW]
+      6. Raw Data (up to 5,000 rows)
     """
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-        wb  = writer.book
+        wb = writer.book
 
         # ── Formats ──────────────────────────────────────────────────────────
-        hdr_fmt = wb.add_format({"bold": True, "bg_color": "#6C63FF",
-                                  "font_color": "#FFFFFF", "border": 1})
-        num_fmt = wb.add_format({"num_format": "#,##0.00", "border": 1})
-        pct_fmt = wb.add_format({"num_format": "0.00%",   "border": 1})
-        txt_fmt = wb.add_format({"border": 1})
+        hdr_fmt  = wb.add_format({"bold": True, "bg_color": "#6C63FF",
+                                  "font_color": "#FFFFFF", "border": 1,
+                                  "align": "center", "valign": "vcenter"})
+        num_fmt  = wb.add_format({"num_format": "#,##0.00", "border": 1})
+        int_fmt  = wb.add_format({"num_format": "#,##0",    "border": 1})
+        pct_fmt  = wb.add_format({"num_format": "0.00%",    "border": 1})
+        txt_fmt  = wb.add_format({"border": 1})
+        date_fmt = wb.add_format({"num_format": "yyyy-mm-dd", "border": 1})
+        title_fmt = wb.add_format({"bold": True, "font_size": 14,
+                                   "font_color": "#6C63FF"})
+        meta_fmt = wb.add_format({"italic": True, "font_color": "#7F8C8D",
+                                  "font_size": 9})
 
-        def write_sheet(sheet_name, data_df):
-            data_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+        def auto_col_width(ws, df_in, start_row=2):
+            for i, col in enumerate(df_in.columns):
+                max_len = max(
+                    len(str(col)),
+                    df_in[col].astype(str).str.len().max() if len(df_in) > 0 else 0
+                )
+                ws.set_column(i, i, min(max(max_len + 2, 12), 40))
+
+        def write_sheet(sheet_name, data_df, title=""):
+            ws = writer.sheets.get(sheet_name)
+            data_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2)
             ws = writer.sheets[sheet_name]
+            if title:
+                ws.write(0, 0, title, title_fmt)
+            ws.write(1, 0, f"Generated from {len(df):,} filtered rows  |  Filters: {filters}", meta_fmt)
             for col_num, col_name in enumerate(data_df.columns):
-                ws.write(0, col_num, col_name, hdr_fmt)
-                ws.set_column(col_num, col_num, max(15, len(str(col_name)) + 4))
+                ws.write(2, col_num, col_name, hdr_fmt)
+            auto_col_width(ws, data_df)
 
         # ── Sheet 1: KPI Summary ─────────────────────────────────────────────
         kpi_df = pd.DataFrame([
-            {"Metric": "Total Revenue",     "Value": kpis.get("total_revenue", 0)},
-            {"Metric": "Total Orders",      "Value": kpis.get("total_orders", 0)},
-            {"Metric": "Total Qty Sold",    "Value": kpis.get("total_quantity", 0)},
-            {"Metric": "Avg Order Value",   "Value": kpis.get("avg_order_value", 0)},
-            {"Metric": "Return Rate (%)",   "Value": kpis.get("return_rate", 0)},
-            {"Metric": "Best Region",       "Value": kpis.get("best_region", "")},
-            {"Metric": "Best Product",      "Value": kpis.get("best_product", "")},
-            {"Metric": "Applied Filters",   "Value": str(filters)},
+            {"Metric": "Total Revenue (₹)",   "Value": f"{kpis.get('total_revenue', 0):,.2f}"},
+            {"Metric": "Total Profit (₹)",    "Value": f"{kpis.get('total_profit', 0):,.2f}"},
+            {"Metric": "Total Orders",         "Value": f"{kpis.get('total_orders', 0):,.0f}"},
+            {"Metric": "Total Qty Sold",       "Value": f"{kpis.get('total_quantity', 0):,.0f}"},
+            {"Metric": "Avg Order Value (₹)",  "Value": f"{kpis.get('avg_order_value', 0):,.2f}"},
+            {"Metric": "Return Rate (%)",      "Value": f"{kpis.get('return_rate', 0):.2f}%"},
+            {"Metric": "Best Region",          "Value": kpis.get("best_region", "")},
+            {"Metric": "Best Product",         "Value": kpis.get("best_product", "")},
+            {"Metric": "Health Score",         "Value": f"{kpis.get('health_score', 0):.0f}/100"},
+            {"Metric": "Growth Score",         "Value": f"{kpis.get('growth_score', 0):.0f}/100"},
         ])
-        write_sheet("KPI Summary", kpi_df)
+        write_sheet("KPI Summary", kpi_df, "📊 KPI Summary")
 
         # ── Sheet 2: Product Summary ──────────────────────────────────────────
         prod_df = (
             df.groupby("product")
             .agg(
-                Total_Revenue=("net_revenue", "sum"),
-                Total_Orders=("order_id",    "nunique"),
+                Total_Revenue=("net_revenue",  "sum"),
+                Total_Orders=("order_id",      "nunique"),
+                Total_Qty_Sold=("quantity_sold","sum"),
                 Avg_Order_Value=("net_revenue", "mean"),
-                Return_Rate=("returned",     "mean"),
+                Avg_Unit_Price=("unit_price",   "mean"),
+                Avg_Discount=("discount",       "mean"),
+                Return_Rate=("returned",        "mean"),
             )
             .reset_index()
             .sort_values("Total_Revenue", ascending=False)
         )
-        prod_df["Return_Rate"] = prod_df["Return_Rate"] * 100
-        write_sheet("Product Summary", prod_df)
+        prod_df["Return_Rate"]  = (prod_df["Return_Rate"] * 100).round(2)
+        prod_df["Avg_Discount"] = (prod_df["Avg_Discount"] * 100).round(2)
+        prod_df.columns         = [c.replace("_", " ") for c in prod_df.columns]
+        write_sheet("Product Summary", prod_df, "📦 Product Performance")
 
         # ── Sheet 3: Region Summary ───────────────────────────────────────────
         reg_df = (
             df.groupby("region")
             .agg(
-                Total_Revenue=("net_revenue", "sum"),
-                Total_Orders=("order_id",    "nunique"),
+                Total_Revenue=("net_revenue",  "sum"),
+                Total_Orders=("order_id",      "nunique"),
+                Total_Qty_Sold=("quantity_sold","sum"),
                 Avg_Order_Value=("net_revenue", "mean"),
-                Return_Rate=("returned",     "mean"),
+                Return_Rate=("returned",        "mean"),
             )
             .reset_index()
             .sort_values("Total_Revenue", ascending=False)
         )
-        reg_df["Return_Rate"] = reg_df["Return_Rate"] * 100
-        write_sheet("Region Summary", reg_df)
+        reg_df["Return_Rate"] = (reg_df["Return_Rate"] * 100).round(2)
+        reg_df.columns        = [c.replace("_", " ") for c in reg_df.columns]
+        write_sheet("Region Summary", reg_df, "🗺️ Region Performance")
 
-        # ── Sheet 4: Raw Data ─────────────────────────────────────────────────
-        raw_cols = ["date", "region", "product", "quantity_sold", "unit_price",
-                    "discount", "net_revenue", "customer_type", "payment_method",
-                    "promotion_used", "returned"]
+        # ── Sheet 4: Monthly Trends ───────────────────────────────────────────
+        monthly_df = (
+            df.groupby("year_month")
+            .agg(
+                Total_Revenue=("net_revenue",   "sum"),
+                Total_Orders=("order_id",       "nunique"),
+                Total_Qty_Sold=("quantity_sold", "sum"),
+                Avg_Order_Value=("net_revenue",  "mean"),
+                Return_Rate=("returned",         "mean"),
+                Avg_Discount=("discount",        "mean"),
+            )
+            .reset_index()
+            .sort_values("year_month")
+        )
+        monthly_df["Return_Rate"] = (monthly_df["Return_Rate"] * 100).round(2)
+        monthly_df["Avg_Discount"] = (monthly_df["Avg_Discount"] * 100).round(2)
+        monthly_df["MoM_Revenue_Change_%"] = monthly_df["Total_Revenue"].pct_change().mul(100).round(2)
+        monthly_df.columns = [c.replace("_", " ") for c in monthly_df.columns]
+        write_sheet("Monthly Trends", monthly_df, "📅 Monthly Sales Trends")
+
+        # ── Sheet 5: Promotions Analysis ──────────────────────────────────────
+        promo_df = (
+            df.groupby("promotion_used")
+            .agg(
+                Total_Revenue=("net_revenue",   "sum"),
+                Total_Orders=("order_id",       "nunique"),
+                Avg_Order_Value=("net_revenue",  "mean"),
+                Total_Qty_Sold=("quantity_sold", "sum"),
+                Return_Rate=("returned",         "mean"),
+                Avg_Discount=("discount",        "mean"),
+            )
+            .reset_index()
+            .sort_values("Total_Revenue", ascending=False)
+        )
+        promo_df["Return_Rate"] = (promo_df["Return_Rate"] * 100).round(2)
+        promo_df["Avg_Discount"] = (promo_df["Avg_Discount"] * 100).round(2)
+        promo_df["Revenue_Share_%"] = (promo_df["Total_Revenue"] / promo_df["Total_Revenue"].sum() * 100).round(2)
+        promo_df.columns = [c.replace("_", " ") for c in promo_df.columns]
+        write_sheet("Promotions Analysis", promo_df, "🎁 Promotions Analysis")
+
+        # ── Sheet 6: Raw Data ─────────────────────────────────────────────────
+        raw_cols = ["date", "order_id", "region", "product", "salesperson",
+                    "customer_name", "customer_type", "quantity_sold", "unit_price",
+                    "discount", "net_revenue", "shipping_cost", "payment_method",
+                    "promotion_used", "returned", "store_location", "region_manager"]
         raw_cols = [c for c in raw_cols if c in df.columns]
-        write_sheet("Raw Data", df[raw_cols].head(5000).reset_index(drop=True))
+        raw_df   = df[raw_cols].head(5000).reset_index(drop=True)
+        write_sheet("Raw Data", raw_df, f"🔎 Raw Data (up to 5,000 rows)")
 
     return buf.getvalue()
+
