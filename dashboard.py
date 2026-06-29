@@ -1246,7 +1246,7 @@ with tab_overview:
     with st.expander("📊 Revenue Pivot Table: Region × Product"):
         pivot = build_pivot_region_product(df)
         st.dataframe(
-            pivot.style.background_gradient(cmap="Blues", axis=None),
+            pivot,
             width="stretch",
         )
 
