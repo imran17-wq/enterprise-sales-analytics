@@ -16,6 +16,7 @@ Functions:
 import io
 import numpy as np
 import pandas as pd
+import streamlit as st
 from sklearn.ensemble import IsolationForest
 from scipy import stats as scipy_stats
 
@@ -346,6 +347,7 @@ def detect_anomalies(df: pd.DataFrame) -> dict:
 # Feature 7 — Excel Export Builder
 # ─────────────────────────────────────────────────────────────────────────────
 
+@st.cache_data(show_spinner=False)
 def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
     """
     Build a multi-sheet Excel workbook and return it as bytes.
@@ -520,6 +522,7 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
 # Feature 8 — PDF Report Builder
 # ─────────────────────────────────────────────────────────────────────────────
 
+@st.cache_data(show_spinner=False)
 def build_pdf_export(df: pd.DataFrame, kpis: dict, filters: dict,
                      summary: dict, date_str: str = "") -> bytes:
     """
@@ -702,6 +705,7 @@ def build_pdf_export(df: pd.DataFrame, kpis: dict, filters: dict,
 # Feature 9 — PNG Chart Export
 # ─────────────────────────────────────────────────────────────────────────────
 
+@st.cache_data(show_spinner=False)
 def build_png_export(df: pd.DataFrame) -> bytes:
     """
     Render a composite 2x2 Plotly chart image (revenue trend, region pie,
