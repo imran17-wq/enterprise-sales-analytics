@@ -16,8 +16,11 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # Force UTF-8 stdout so Unicode chars in print() don't crash on Windows cp1252
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+except OSError:
+    pass  # Streamlit Cloud stdout doesn't support reconfigure
 
 
 import io
