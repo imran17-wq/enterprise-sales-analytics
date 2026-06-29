@@ -1600,6 +1600,65 @@ with tab_export:
     st.markdown("### 📤 Export Center")
     st.markdown("<p style='color:var(--text-secondary); margin-top:-8px;'>Download your filtered data, summaries, and reports in multiple formats.</p>", unsafe_allow_html=True)
 
+    # ── Export Preview ────────────────────────────────────────────────────────
+    total_records    = len(df_full)
+    filtered_records = len(df)
+
+    # Build active filter labels
+    active_filter_parts = []
+    for col, vals in st.session_state.applied_filters.items():
+        all_vals = sorted(df_full[col].dropna().unique())
+        if sorted(vals) != sorted(all_vals):  # only show if not "all selected"
+            label = col.replace("_", " ").title()
+            if len(vals) <= 3:
+                active_filter_parts.append(f"<b>{label}</b> = {', '.join(map(str, vals))}")
+            else:
+                active_filter_parts.append(f"<b>{label}</b> = {len(vals)} selected")
+
+    # Date range display
+    try:
+        date_str = f"{start_date.strftime('%Y-%m-%d')} → {end_date.strftime('%Y-%m-%d')}"
+    except Exception:
+        date_str = "Full range"
+
+    filter_html = "  &nbsp;|&nbsp;  ".join(active_filter_parts) if active_filter_parts else "<span style='color:var(--text-secondary);'>None (showing all data)</span>"
+    pct = filtered_records / total_records * 100 if total_records > 0 else 0
+    bar_color = "#2ECC71" if pct > 50 else "#F39C12" if pct > 20 else "#FF6584"
+
+    st.markdown(f"""
+    <div style="background:var(--card-bg); border:1px solid var(--card-border);
+        border-radius:12px; padding:18px 22px; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+            <span style="font-size:1.3rem;">📊</span>
+            <span style="font-size:1.05rem; font-weight:700; color:var(--text-primary);">Export Preview</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:14px;">
+            <div style="background:rgba(108,99,255,0.08); border-radius:8px; padding:12px 16px;">
+                <div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:4px;">Filtered Records</div>
+                <div style="font-size:1.6rem; font-weight:800; color:{bar_color};">{filtered_records:,}</div>
+                <div style="font-size:0.78rem; color:var(--text-secondary);">of {total_records:,} total &nbsp;({pct:.1f}%)</div>
+            </div>
+            <div style="background:rgba(108,99,255,0.08); border-radius:8px; padding:12px 16px;">
+                <div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:4px;">Date Range</div>
+                <div style="font-size:1rem; font-weight:700; color:var(--text-primary); margin-top:6px;">{date_str}</div>
+            </div>
+            <div style="background:rgba(108,99,255,0.08); border-radius:8px; padding:12px 16px;">
+                <div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:4px;">Export Includes</div>
+                <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary); margin-top:4px; line-height:1.6;">
+                    6-sheet Excel &nbsp;·&nbsp; CSV &nbsp;·&nbsp; JSON &nbsp;·&nbsp; Summary .txt
+                </div>
+            </div>
+        </div>
+        <div style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:6px;">
+            <span style="font-weight:600; color:var(--text-primary);">Active Filters:</span> &nbsp;{filter_html}
+        </div>
+        <div style="background:rgba(255,255,255,0.05); border-radius:4px; height:5px; margin-top:10px;">
+            <div style="background:{bar_color}; width:{pct:.1f}%; height:5px; border-radius:4px; transition:width 0.4s ease;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
     ex1, ex2 = st.columns(2, gap="medium")
 
     with ex1:
