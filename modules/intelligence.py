@@ -529,8 +529,13 @@ def build_pdf_export(df: pd.DataFrame, kpis: dict, filters: dict,
     """
     try:
         from fpdf import FPDF
-    except ImportError as e:
-        raise ImportError(f"PDF export requires fpdf2. Exact error: {e}")
+    except ImportError:
+        import os
+        import subprocess
+        import sys
+        # Last resort: forcefully install fpdf2 at runtime if Streamlit Cloud ignored requirements.txt
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "fpdf2>=2.7.0"])
+        from fpdf import FPDF
 
     import datetime
 
