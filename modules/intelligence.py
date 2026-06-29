@@ -8,7 +8,9 @@ Functions:
   - get_top_movers(df)                  -> dict
   - detect_anomalies(df)                -> dict
   - run_what_if(df, sliders)            -> dict
-  - build_excel_export(df, kpis)        -> BytesIO
+  - build_excel_export(df, kpis)        -> bytes
+  - build_pdf_export(df, kpis, ...)     -> bytes
+  - build_png_export(df)                -> bytes
 """
 
 import io
@@ -513,3 +515,247 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
 
     return buf.getvalue()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 8 — PDF Report Builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_pdf_export(df: pd.DataFrame, kpis: dict, filters: dict,
+                     summary: dict, date_str: str = "") -> bytes:
+    """
+    Generate a formatted PDF sales report using fpdf2.
+    Includes: KPI summary, product table, region table, executive summary.
+    Returns bytes suitable for st.download_button.
+    """
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        raise ImportError("fpdf2 is required for PDF export. Add 'fpdf2>=2.7.0' to requirements.txt")
+
+    import datetime
+
+    BRAND   = (108, 99, 255)   # primary indigo
+    LIGHT   = (245, 245, 250)
+    DARK    = (30, 30, 45)
+    WHITE   = (255, 255, 255)
+    GRAY    = (120, 120, 140)
+    GREEN   = (46, 204, 113)
+    RED     = (231, 76, 60)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margins(18, 18, 18)
+
+    def fmt_inr(val):
+        try:
+            return f"Rs {float(val):,.0f}"
+        except Exception:
+            return str(val)
+
+    def section(title: str):
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_text_color(*BRAND)
+        pdf.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_draw_color(*BRAND)
+        pdf.set_line_width(0.5)
+        pdf.line(18, pdf.get_y(), 192, pdf.get_y())
+        pdf.ln(4)
+        pdf.set_text_color(30, 30, 45)
+
+    def table(headers, rows, col_widths=None):
+        if col_widths is None:
+            avail = 174
+            col_widths = [avail // len(headers)] * len(headers)
+        # Header row
+        pdf.set_fill_color(*BRAND)
+        pdf.set_text_color(*WHITE)
+        pdf.set_font("Helvetica", "B", 9)
+        for i, h in enumerate(headers):
+            pdf.cell(col_widths[i], 8, str(h), border=1, fill=True, align="C")
+        pdf.ln()
+        # Data rows
+        pdf.set_font("Helvetica", "", 8)
+        for r_idx, row in enumerate(rows):
+            pdf.set_fill_color(*LIGHT) if r_idx % 2 == 0 else pdf.set_fill_color(*WHITE)
+            pdf.set_text_color(*DARK)
+            for i, cell in enumerate(row):
+                pdf.cell(col_widths[i], 7, str(cell)[:35], border=1, fill=True, align="C")
+            pdf.ln()
+        pdf.ln(4)
+
+    # ── Cover Page ─────────────────────────────────────────────────────────────
+    pdf.add_page()
+    pdf.set_fill_color(*BRAND)
+    pdf.rect(0, 0, 210, 60, "F")
+    pdf.set_y(18)
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.set_text_color(*WHITE)
+    pdf.cell(0, 12, "Sales Intelligence Report", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(0, 8, "Enterprise Analytics Dashboard", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 6, f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", align="C", new_x="LMARGIN", new_y="NEXT")
+    if date_str:
+        pdf.cell(0, 6, f"Date Range: {date_str}", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_y(70)
+    pdf.set_text_color(*DARK)
+
+    # ── KPI Summary ────────────────────────────────────────────────────────────
+    section("Key Performance Indicators")
+    kpi_rows = [
+        ("Total Revenue",    fmt_inr(kpis.get("total_revenue", 0))),
+        ("Total Profit",     fmt_inr(kpis.get("total_profit", 0))),
+        ("Total Orders",     f"{int(kpis.get('total_orders', 0)):,}"),
+        ("Total Qty Sold",   f"{int(kpis.get('total_quantity', 0)):,}"),
+        ("Avg Order Value",  fmt_inr(kpis.get("avg_order_value", 0))),
+        ("Return Rate",      f"{kpis.get('return_rate', 0):.2f}%"),
+        ("Best Region",      str(kpis.get("best_region", "N/A"))),
+        ("Best Product",     str(kpis.get("best_product", "N/A"))),
+        ("Health Score",     f"{kpis.get('health_score', 0):.0f}/100"),
+        ("Growth Score",     f"{kpis.get('growth_score', 0):.0f}/100"),
+    ]
+    table(["Metric", "Value"], kpi_rows, [90, 84])
+
+    # ── Filter Summary ─────────────────────────────────────────────────────────
+    section("Applied Filters")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*GRAY)
+    for k, v in filters.items():
+        label = k.replace("_", " ").title()
+        vals  = ", ".join(map(str, v)) if v else "None"
+        pdf.cell(0, 6, f"{label}: {vals}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*DARK)
+    pdf.cell(0, 6, f"Filtered Records: {len(df):,}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Product Summary ────────────────────────────────────────────────────────
+    pdf.add_page()
+    section("Product Performance")
+    prod_df = (
+        df.groupby("product")
+        .agg(Revenue=("net_revenue", "sum"), Orders=("order_id", "nunique"),
+             ReturnRate=("returned", "mean"))
+        .reset_index().sort_values("Revenue", ascending=False)
+    )
+    prod_rows = [
+        (r["product"], fmt_inr(r["Revenue"]), f"{int(r['Orders']):,}", f"{r['ReturnRate']*100:.1f}%")
+        for _, r in prod_df.iterrows()
+    ]
+    table(["Product", "Revenue", "Orders", "Return Rate"], prod_rows, [50, 50, 37, 37])
+
+    # ── Region Summary ─────────────────────────────────────────────────────────
+    section("Region Performance")
+    reg_df = (
+        df.groupby("region")
+        .agg(Revenue=("net_revenue", "sum"), Orders=("order_id", "nunique"),
+             ReturnRate=("returned", "mean"))
+        .reset_index().sort_values("Revenue", ascending=False)
+    )
+    reg_rows = [
+        (r["region"], fmt_inr(r["Revenue"]), f"{int(r['Orders']):,}", f"{r['ReturnRate']*100:.1f}%")
+        for _, r in reg_df.iterrows()
+    ]
+    table(["Region", "Revenue", "Orders", "Return Rate"], reg_rows, [50, 50, 37, 37])
+
+    # ── Executive Summary ──────────────────────────────────────────────────────
+    pdf.add_page()
+    section("Executive Intelligence Summary")
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*DARK)
+    pdf.multi_cell(0, 6, summary.get("headline", ""), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+
+    for heading, key in [("Key Drivers", "drivers"), ("Risks", "risks"), ("Recommended Actions", "actions")]:
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(*BRAND)
+        pdf.cell(0, 7, heading, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*DARK)
+        for item in summary.get(key, []):
+            bullet = "-> " if heading == "Recommended Actions" else "* "
+            pdf.multi_cell(0, 5.5, f"  {bullet}{item}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+
+    return bytes(pdf.output())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature 9 — PNG Chart Export
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_png_export(df: pd.DataFrame) -> bytes:
+    """
+    Render a composite 2x2 Plotly chart image (revenue trend, region pie,
+    product bar, return rate bar) and return it as PNG bytes.
+    Requires kaleido>=0.2.1.
+    """
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+        from plotly.subplots import make_subplots
+    except ImportError:
+        raise ImportError("plotly is required for PNG export.")
+
+    monthly = df.groupby("year_month")["net_revenue"].sum().reset_index()
+    region  = df.groupby("region")["net_revenue"].sum().reset_index()
+    product = df.groupby("product")["net_revenue"].sum().reset_index().sort_values("net_revenue", ascending=False)
+    ret     = df.groupby("product")["returned"].mean().reset_index()
+    ret["returned"] = ret["returned"] * 100
+
+    COLORS = ["#6C63FF", "#43E8D8", "#FF6584", "#F39C12", "#2ECC71", "#D946EF", "#818CF8"]
+
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=["Monthly Revenue Trend", "Revenue by Region",
+                        "Revenue by Product",    "Return Rate by Product"],
+        specs=[[{"type": "scatter"}, {"type": "pie"}],
+               [{"type": "bar"},    {"type": "bar"}]],
+        vertical_spacing=0.18,
+        horizontal_spacing=0.12,
+    )
+
+    # Monthly trend
+    fig.add_trace(go.Scatter(
+        x=monthly["year_month"], y=monthly["net_revenue"],
+        mode="lines+markers", line=dict(color="#6C63FF", width=2.5),
+        fill="tozeroy", fillcolor="rgba(108,99,255,0.12)", name="Revenue"
+    ), row=1, col=1)
+
+    # Region pie
+    fig.add_trace(go.Pie(
+        labels=region["region"], values=region["net_revenue"],
+        hole=0.45, marker=dict(colors=COLORS),
+        textinfo="label+percent", showlegend=False
+    ), row=1, col=2)
+
+    # Product bar
+    fig.add_trace(go.Bar(
+        x=product["product"], y=product["net_revenue"],
+        marker_color=COLORS[:len(product)], showlegend=False
+    ), row=2, col=1)
+
+    # Return rate bar
+    fig.add_trace(go.Bar(
+        x=ret["product"], y=ret["returned"],
+        marker_color="#FF6584", showlegend=False
+    ), row=2, col=2)
+
+    fig.update_layout(
+        title=dict(text="Sales Intelligence Dashboard — Export Snapshot",
+                   font=dict(size=16, color="#6C63FF")),
+        paper_bgcolor="#1A1D27",
+        plot_bgcolor="#1A1D27",
+        font=dict(family="Arial, sans-serif", color="#EAEAEA", size=11),
+        height=900, width=1400,
+        margin=dict(l=40, r=40, t=80, b=40),
+    )
+    fig.update_xaxes(gridcolor="rgba(255,255,255,0.06)", color="#EAEAEA")
+    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", color="#EAEAEA")
+
+    try:
+        return fig.to_image(format="png", scale=2)
+    except Exception as e:
+        raise RuntimeError(
+            f"PNG export failed. Ensure kaleido>=0.2.1 is installed. Error: {e}"
+        )

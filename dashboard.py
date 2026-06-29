@@ -66,6 +66,8 @@ from modules.intelligence import (
     detect_anomalies,
     run_what_if,
     build_excel_export,
+    build_pdf_export,
+    build_png_export,
 )
 from modules.explorer import render_business_explorer
 
@@ -1597,6 +1599,9 @@ with tab_anomaly:
 # TAB 8 — EXPORT CENTER
 # ═════════════════════════════════════════════════════════════════════════════
 with tab_export:
+    import json as _json
+    import datetime as _dt
+
     st.markdown("### 📤 Export Center")
     st.markdown("<p style='color:var(--text-secondary); margin-top:-8px;'>Download your filtered data, summaries, and reports in multiple formats.</p>", unsafe_allow_html=True)
 
@@ -1604,18 +1609,16 @@ with tab_export:
     total_records    = len(df_full)
     filtered_records = len(df)
 
-    # Build active filter labels
     active_filter_parts = []
     for col, vals in st.session_state.applied_filters.items():
         all_vals = sorted(df_full[col].dropna().unique())
-        if sorted(vals) != sorted(all_vals):  # only show if not "all selected"
+        if sorted(vals) != sorted(all_vals):
             label = col.replace("_", " ").title()
             if len(vals) <= 3:
                 active_filter_parts.append(f"<b>{label}</b> = {', '.join(map(str, vals))}")
             else:
                 active_filter_parts.append(f"<b>{label}</b> = {len(vals)} selected")
 
-    # Date range display
     try:
         date_str = f"{start_date.strftime('%Y-%m-%d')} → {end_date.strftime('%Y-%m-%d')}"
     except Exception:
@@ -1643,9 +1646,9 @@ with tab_export:
                 <div style="font-size:1rem; font-weight:700; color:var(--text-primary); margin-top:6px;">{date_str}</div>
             </div>
             <div style="background:rgba(108,99,255,0.08); border-radius:8px; padding:12px 16px;">
-                <div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:4px;">Export Includes</div>
+                <div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:4px;">Export Formats</div>
                 <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary); margin-top:4px; line-height:1.6;">
-                    6-sheet Excel &nbsp;·&nbsp; CSV &nbsp;·&nbsp; JSON &nbsp;·&nbsp; Summary .txt
+                    PDF &nbsp;·&nbsp; PNG &nbsp;·&nbsp; Excel &nbsp;·&nbsp; CSV &nbsp;·&nbsp; JSON &nbsp;·&nbsp; TXT
                 </div>
             </div>
         </div>
@@ -1653,15 +1656,103 @@ with tab_export:
             <span style="font-weight:600; color:var(--text-primary);">Active Filters:</span> &nbsp;{filter_html}
         </div>
         <div style="background:rgba(255,255,255,0.05); border-radius:4px; height:5px; margin-top:10px;">
-            <div style="background:{bar_color}; width:{pct:.1f}%; height:5px; border-radius:4px; transition:width 0.4s ease;"></div>
+            <div style="background:{bar_color}; width:{pct:.1f}%; height:5px; border-radius:4px;"></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Custom File Name ──────────────────────────────────────────────────────
+    default_fname = f"Sales_Intelligence_Report_{_dt.date.today().strftime('%Y-%m-%d')}"
+    st.markdown("<div style='font-size:0.82rem; color:var(--text-secondary); margin-bottom:4px;'>📝 <b>Custom File Name</b> &nbsp;<span style='font-weight:400;'>(extension added automatically · leave blank for default)</span></div>", unsafe_allow_html=True)
+    custom_name = st.text_input(
+        "File Name",
+        value="",
+        placeholder=default_fname,
+        label_visibility="collapsed",
+        key="export_custom_name",
+    )
+    base_name = custom_name.strip() if custom_name.strip() else default_fname
 
-    ex1, ex2 = st.columns(2, gap="medium")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with ex1:
+    # ── Pre-compute shared export data ────────────────────────────────────────
+    summary_ex   = generate_executive_summary(df, kpis)
+    excel_bytes  = build_excel_export(df, kpis, st.session_state.applied_filters)
+
+    csv_cols = [c for c in ["date", "order_id", "region", "product", "salesperson",
+                "customer_name", "customer_type", "quantity_sold", "unit_price",
+                "discount", "net_revenue", "shipping_cost", "payment_method",
+                "promotion_used", "returned", "store_location", "region_manager"] if c in df.columns]
+    csv_bytes = df[csv_cols].to_csv(index=False).encode()
+
+    prod_summary  = df.groupby("product")["net_revenue"].sum().round(2).to_dict()
+    reg_summary   = df.groupby("region")["net_revenue"].sum().round(2).to_dict()
+    promo_summary = df.groupby("promotion_used")["net_revenue"].sum().round(2).to_dict()
+    json_payload  = {
+        "meta":             {"total_rows": len(df), "filters": st.session_state.applied_filters, "date_range": date_str},
+        "kpis":             {k: (round(v, 2) if isinstance(v, float) else v) for k, v in kpis.items()},
+        "product_revenue":  prod_summary,
+        "region_revenue":   reg_summary,
+        "promotion_revenue": promo_summary,
+    }
+    json_bytes = _json.dumps(json_payload, indent=2, default=str).encode()
+
+    txt_lines = (
+        "SALES ANALYTICS — EXECUTIVE SUMMARY\n"
+        f"Generated from filtered dataset ({len(df):,} rows)\n"
+        f"Date Range: {date_str}\n"
+        "=" * 55 + "\n\n"
+        f"HEADLINE:\n{summary_ex['headline']}\n\n"
+        "KEY DRIVERS:\n" + "\n".join(f"  • {d}" for d in summary_ex["drivers"]) + "\n\n"
+        "RISKS:\n"        + "\n".join(f"  • {r}" for r in summary_ex["risks"])   + "\n\n"
+        "RECOMMENDED ACTIONS:\n" + "\n".join(f"  → {a}" for a in summary_ex["actions"])
+    )
+
+    # ── Row 1: PDF + PNG ──────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">📄 Dashboard Reports</div>', unsafe_allow_html=True)
+    r1c1, r1c2 = st.columns(2, gap="medium")
+
+    with r1c1:
+        st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
+            border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
+            <div style="font-size:2.5rem;">📄</div>
+            <h4 style="margin:8px 0 4px 0; color:var(--text-primary);">PDF Report</h4>
+            <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
+            Full report: Cover · KPIs · Products · Regions · Executive Summary (4 pages)</p>
+        </div>""", unsafe_allow_html=True)
+        try:
+            pdf_bytes = build_pdf_export(df, kpis, st.session_state.applied_filters, summary_ex, date_str)
+            st.download_button(
+                "📥 Download PDF (.pdf)", data=pdf_bytes,
+                file_name=f"{base_name}.pdf", mime="application/pdf",
+                use_container_width=True, type="primary",
+            )
+        except Exception as e:
+            st.error(f"PDF generation failed: {e}")
+
+    with r1c2:
+        st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
+            border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
+            <div style="font-size:2.5rem;">🖼️</div>
+            <h4 style="margin:8px 0 4px 0; color:var(--text-primary);">PNG Chart Snapshot</h4>
+            <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
+            High-res 1400×900px composite chart image (revenue · region · products · returns)</p>
+        </div>""", unsafe_allow_html=True)
+        try:
+            png_bytes = build_png_export(df)
+            st.download_button(
+                "📥 Download PNG (.png)", data=png_bytes,
+                file_name=f"{base_name}.png", mime="image/png",
+                use_container_width=True, type="primary",
+            )
+        except Exception as e:
+            st.warning(f"PNG export unavailable: {e}")
+
+    # ── Row 2: Excel + Summary TXT ────────────────────────────────────────────
+    st.markdown('<div class="section-header">📊 Data Exports</div>', unsafe_allow_html=True)
+    r2c1, r2c2 = st.columns(2, gap="medium")
+
+    with r2c1:
         st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
             border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
             <div style="font-size:2.5rem;">📊</div>
@@ -1669,15 +1760,14 @@ with tab_export:
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
             6 sheets: KPIs · Products · Regions · Monthly Trends · Promotions · Raw Data</p>
         </div>""", unsafe_allow_html=True)
-        excel_bytes = build_excel_export(df, kpis, st.session_state.applied_filters)
         st.download_button(
             "📥 Download Excel (.xlsx)", data=excel_bytes,
-            file_name="sales_dashboard_export.xlsx",
+            file_name=f"{base_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True, type="primary",
         )
 
-    with ex2:
+    with r2c2:
         st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
             border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
             <div style="font-size:2.5rem;">📝</div>
@@ -1685,26 +1775,16 @@ with tab_export:
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
             Plain-text narrative summary with drivers, risks, and recommended actions</p>
         </div>""", unsafe_allow_html=True)
-        summary_ex = generate_executive_summary(df, kpis)
-        txt_lines = (
-            "SALES ANALYTICS — EXECUTIVE SUMMARY\n"
-            f"Generated from filtered dataset ({len(df):,} rows)\n"
-            f"Filters: {st.session_state.applied_filters}\n"
-            "=" * 55 + "\n\n"
-            f"HEADLINE:\n{summary_ex['headline']}\n\n"
-            "KEY DRIVERS:\n" + "\n".join(f"  • {d}" for d in summary_ex["drivers"]) + "\n\n"
-            "RISKS:\n"        + "\n".join(f"  • {r}" for r in summary_ex["risks"])   + "\n\n"
-            "RECOMMENDED ACTIONS:\n" + "\n".join(f"  → {a}" for a in summary_ex["actions"])
-        )
         st.download_button(
             "📥 Download Summary (.txt)", data=txt_lines.encode(),
-            file_name="executive_summary.txt", mime="text/plain",
+            file_name=f"{base_name}.txt", mime="text/plain",
             use_container_width=True,
         )
 
-    ex3, ex4 = st.columns(2, gap="medium")
+    # ── Row 3: CSV + JSON ─────────────────────────────────────────────────────
+    r3c1, r3c2 = st.columns(2, gap="medium")
 
-    with ex3:
+    with r3c1:
         st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
             border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
             <div style="font-size:2.5rem;">📋</div>
@@ -1712,18 +1792,13 @@ with tab_export:
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
             Full filtered dataset with all key columns as a ready-to-use CSV file</p>
         </div>""", unsafe_allow_html=True)
-        csv_cols = [c for c in ["date", "order_id", "region", "product", "salesperson",
-                    "customer_name", "customer_type", "quantity_sold", "unit_price",
-                    "discount", "net_revenue", "shipping_cost", "payment_method",
-                    "promotion_used", "returned", "store_location", "region_manager"] if c in df.columns]
-        csv_bytes = df[csv_cols].to_csv(index=False).encode()
         st.download_button(
-            "📥 Download CSV", data=csv_bytes,
-            file_name="filtered_sales_data.csv", mime="text/csv",
+            "📥 Download CSV (.csv)", data=csv_bytes,
+            file_name=f"{base_name}.csv", mime="text/csv",
             use_container_width=True,
         )
 
-    with ex4:
+    with r3c2:
         st.markdown("""<div style="background:var(--card-bg); border:1px solid var(--card-border);
             border-radius:12px; padding:20px; text-align:center; margin-bottom:12px;">
             <div style="font-size:2.5rem;">🗂️</div>
@@ -1731,35 +1806,18 @@ with tab_export:
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">
             KPIs + product & region summaries in structured JSON for API / developer use</p>
         </div>""", unsafe_allow_html=True)
-        import json
-        prod_summary = df.groupby("product")["net_revenue"].sum().round(2).to_dict()
-        reg_summary  = df.groupby("region")["net_revenue"].sum().round(2).to_dict()
-        promo_summary = df.groupby("promotion_used")["net_revenue"].sum().round(2).to_dict()
-        json_payload = {
-            "meta": {
-                "total_rows": len(df),
-                "filters":    st.session_state.applied_filters,
-            },
-            "kpis": {k: (round(v, 2) if isinstance(v, float) else v)
-                     for k, v in kpis.items()},
-            "product_revenue":   prod_summary,
-            "region_revenue":    reg_summary,
-            "promotion_revenue": promo_summary,
-        }
-        json_bytes = json.dumps(json_payload, indent=2, default=str).encode()
         st.download_button(
-            "📥 Download JSON", data=json_bytes,
-            file_name="sales_summary.json", mime="application/json",
+            "📥 Download JSON (.json)", data=json_bytes,
+            file_name=f"{base_name}.json", mime="application/json",
             use_container_width=True,
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("""
+    st.markdown(f"""
     <div style="background:rgba(108,99,255,0.08); border:1px solid rgba(108,99,255,0.2);
         border-radius:10px; padding:14px 18px; font-size:0.82rem; color:var(--text-secondary);">
-        <b>📌 Export Notes:</b> All exports respect your current sidebar filters and date range.
-        The Excel file contains <b>6 formatted sheets</b> with auto-sized columns, branded headers,
-        and a month-over-month trends column. JSON export is ideal for developers or piping into other tools.
+        <b>📌 Export Notes:</b> All {filtered_records:,} records exported are filtered by your active sidebar selections and date range.
+        The Excel file contains <b>6 formatted sheets</b>. PDF is a 4-page branded report. PNG is a 1400×900px high-res chart snapshot.
+        Custom file names are sanitized and the correct extension is always appended automatically.
     </div>""", unsafe_allow_html=True)
-
 
