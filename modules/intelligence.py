@@ -388,25 +388,42 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
             ws = writer.sheets[sheet_name]
             if title:
                 ws.write(0, 0, title, title_fmt)
-            ws.write(1, 0, f"Generated from {len(df):,} filtered rows  |  Filters: {filters}", meta_fmt)
+            # Build a compact filter summary string
+            filter_parts = [f"{k.replace('_',' ').title()}: {len(v)} selected" for k, v in filters.items() if v]
+            filter_str = "  |  ".join(filter_parts) if filter_parts else "No filters applied"
+            ws.write(1, 0, f"Generated from {len(df):,} filtered rows  ·  {filter_str}", meta_fmt)
             for col_num, col_name in enumerate(data_df.columns):
                 ws.write(2, col_num, col_name, hdr_fmt)
             auto_col_width(ws, data_df)
 
         # ── Sheet 1: KPI Summary ─────────────────────────────────────────────
         kpi_df = pd.DataFrame([
-            {"Metric": "Total Revenue (₹)",   "Value": f"{kpis.get('total_revenue', 0):,.2f}"},
-            {"Metric": "Total Profit (₹)",    "Value": f"{kpis.get('total_profit', 0):,.2f}"},
-            {"Metric": "Total Orders",         "Value": f"{kpis.get('total_orders', 0):,.0f}"},
-            {"Metric": "Total Qty Sold",       "Value": f"{kpis.get('total_quantity', 0):,.0f}"},
-            {"Metric": "Avg Order Value (₹)",  "Value": f"{kpis.get('avg_order_value', 0):,.2f}"},
-            {"Metric": "Return Rate (%)",      "Value": f"{kpis.get('return_rate', 0):.2f}%"},
-            {"Metric": "Best Region",          "Value": kpis.get("best_region", "")},
-            {"Metric": "Best Product",         "Value": kpis.get("best_product", "")},
-            {"Metric": "Health Score",         "Value": f"{kpis.get('health_score', 0):.0f}/100"},
-            {"Metric": "Growth Score",         "Value": f"{kpis.get('growth_score', 0):.0f}/100"},
+            {"Metric": "Total Revenue (₹)",   "Value": round(kpis.get("total_revenue", 0), 2),   "Format": "currency"},
+            {"Metric": "Total Profit (₹)",    "Value": round(kpis.get("total_profit", 0), 2),    "Format": "currency"},
+            {"Metric": "Total Orders",         "Value": int(kpis.get("total_orders", 0)),          "Format": "integer"},
+            {"Metric": "Total Qty Sold",       "Value": int(kpis.get("total_quantity", 0)),        "Format": "integer"},
+            {"Metric": "Avg Order Value (₹)",  "Value": round(kpis.get("avg_order_value", 0), 2), "Format": "currency"},
+            {"Metric": "Return Rate (%)",      "Value": round(kpis.get("return_rate", 0), 2),     "Format": "percent"},
+            {"Metric": "Health Score (/100)",  "Value": round(kpis.get("health_score", 0), 1),    "Format": "number"},
+            {"Metric": "Growth Score (/100)",  "Value": round(kpis.get("growth_score", 0), 1),    "Format": "number"},
+            {"Metric": "Best Region",          "Value": kpis.get("best_region", ""),              "Format": "text"},
+            {"Metric": "Best Product",         "Value": kpis.get("best_product", ""),             "Format": "text"},
         ])
-        write_sheet("KPI Summary", kpi_df, "📊 KPI Summary")
+        # Write KPI sheet manually with per-row number formatting
+        kpi_df[["Metric", "Value"]].to_excel(writer, sheet_name="KPI Summary", index=False, startrow=2)
+        ws_kpi = writer.sheets["KPI Summary"]
+        ws_kpi.write(0, 0, "📊 KPI Summary", title_fmt)
+        filter_parts_kpi = [f"{k.replace('_',' ').title()}: {len(v)} selected" for k, v in filters.items() if v]
+        ws_kpi.write(1, 0, "Generated from {:,} filtered rows  ·  {}".format(
+            len(df), "  |  ".join(filter_parts_kpi) if filter_parts_kpi else "No filters"), meta_fmt)
+        ws_kpi.write(2, 0, "Metric", hdr_fmt)
+        ws_kpi.write(2, 1, "Value",  hdr_fmt)
+        fmt_map = {"currency": num_fmt, "integer": int_fmt, "percent": num_fmt, "number": num_fmt, "text": txt_fmt}
+        for row_i, (_, row) in enumerate(kpi_df.iterrows(), start=3):
+            ws_kpi.write(row_i, 0, row["Metric"], txt_fmt)
+            ws_kpi.write(row_i, 1, row["Value"],  fmt_map.get(row["Format"], txt_fmt))
+        ws_kpi.set_column(0, 0, 28)
+        ws_kpi.set_column(1, 1, 22)
 
         # ── Sheet 2: Product Summary ──────────────────────────────────────────
         prod_df = (
