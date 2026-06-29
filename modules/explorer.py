@@ -107,7 +107,7 @@ def generate_pivot_table(df: pd.DataFrame, dim1: str, dim2: str, metric: str):
     else:
         formatter = lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) else x
 
-    return pivot.style.format(formatter).background_gradient(cmap='Blues', axis=None)
+    return pivot.style.format(formatter)
 
 def render_compare_mode(df: pd.DataFrame, dim: str, a: str, b: str, metric: str, layout: dict):
     col, agg_func, fmt = METRIC_MAPPING[metric]
