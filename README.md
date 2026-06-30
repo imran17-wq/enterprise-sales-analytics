@@ -76,7 +76,7 @@ Adjust business levers (e.g., Discount Rate, Demand Volume) using sliders to pro
 ## 📸 Feature Previews
 
 ### Main Dashboard
-![Main Dashboard](https://placehold.co/1000x500/png?text=Main+Dashboard+KPIs)
+![Main Dashboard](assets/dashboard_preview.png)
 
 ### Forecasting Section
 ![Forecasting Section](https://placehold.co/1000x500/png?text=Machine+Learning+Forecasting)
