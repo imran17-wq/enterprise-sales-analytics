@@ -708,16 +708,14 @@ def build_pdf_export(df: pd.DataFrame, kpis: dict, filters: dict,
 @st.cache_data(show_spinner=False)
 def build_png_export(df: pd.DataFrame) -> bytes:
     """
-    Render a composite 2x2 Plotly chart image (revenue trend, region pie,
+    Render a composite 2x2 matplotlib chart image (revenue trend, region pie,
     product bar, return rate bar) and return it as PNG bytes.
-    Requires kaleido>=0.2.1.
+    This bypasses the need for Plotly/kaleido/Chrome on constrained environments.
     """
-    try:
-        import plotly.graph_objects as go
-        import plotly.express as px
-        from plotly.subplots import make_subplots
-    except ImportError:
-        raise ImportError("plotly is required for PNG export.")
+    import io
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
+    import numpy as np
 
     monthly = df.groupby("year_month")["net_revenue"].sum().reset_index()
     region  = df.groupby("region")["net_revenue"].sum().reset_index()
@@ -726,58 +724,63 @@ def build_png_export(df: pd.DataFrame) -> bytes:
     ret["returned"] = ret["returned"] * 100
 
     COLORS = ["#6C63FF", "#43E8D8", "#FF6584", "#F39C12", "#2ECC71", "#D946EF", "#818CF8"]
+    BG_COLOR = "#1A1D27"
+    TEXT_COLOR = "#EAEAEA"
 
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=["Monthly Revenue Trend", "Revenue by Region",
-                        "Revenue by Product",    "Return Rate by Product"],
-        specs=[[{"type": "scatter"}, {"type": "pie"}],
-               [{"type": "bar"},    {"type": "bar"}]],
-        vertical_spacing=0.18,
-        horizontal_spacing=0.12,
+    fig, axs = plt.subplots(2, 2, figsize=(14, 9), facecolor=BG_COLOR)
+    fig.suptitle("Sales Intelligence Dashboard — Export Snapshot", 
+                 fontsize=16, color="#6C63FF", y=0.95)
+    
+    for ax in axs.flat:
+        ax.set_facecolor(BG_COLOR)
+        ax.tick_params(colors=TEXT_COLOR)
+        for spine in ax.spines.values():
+            spine.set_color("none")
+
+    # 1. Monthly trend
+    ax = axs[0, 0]
+    ax.set_title("Monthly Revenue Trend", color=TEXT_COLOR, pad=10)
+    ax.plot(monthly["year_month"], monthly["net_revenue"], 
+            marker="o", color="#6C63FF", linewidth=2.5)
+    ax.fill_between(monthly["year_month"], monthly["net_revenue"], 
+                    color="#6C63FF", alpha=0.12)
+    ax.grid(color=(1, 1, 1, 0.06), linestyle="-", linewidth=0.5)
+    ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
+    ax.tick_params(axis='x', rotation=45)
+
+    # 2. Region pie
+    ax = axs[0, 1]
+    ax.set_title("Revenue by Region", color=TEXT_COLOR, pad=10)
+    colors = (COLORS * (len(region) // len(COLORS) + 1))[:len(region)]
+    ax.pie(
+        region["net_revenue"], 
+        labels=region["region"], 
+        autopct='%1.1f%%',
+        colors=colors,
+        wedgeprops=dict(width=0.55, edgecolor=BG_COLOR),
+        textprops=dict(color=TEXT_COLOR)
     )
 
-    # Monthly trend
-    fig.add_trace(go.Scatter(
-        x=monthly["year_month"], y=monthly["net_revenue"],
-        mode="lines+markers", line=dict(color="#6C63FF", width=2.5),
-        fill="tozeroy", fillcolor="rgba(108,99,255,0.12)", name="Revenue"
-    ), row=1, col=1)
+    # 3. Product bar
+    ax = axs[1, 0]
+    ax.set_title("Revenue by Product", color=TEXT_COLOR, pad=10)
+    colors = (COLORS * (len(product) // len(COLORS) + 1))[:len(product)]
+    ax.bar(product["product"], product["net_revenue"], color=colors)
+    ax.grid(color=(1, 1, 1, 0.06), linestyle="-", linewidth=0.5, axis='y')
+    ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
+    ax.tick_params(axis='x', rotation=45)
 
-    # Region pie
-    fig.add_trace(go.Pie(
-        labels=region["region"], values=region["net_revenue"],
-        hole=0.45, marker=dict(colors=COLORS),
-        textinfo="label+percent", showlegend=False
-    ), row=1, col=2)
+    # 4. Return rate bar
+    ax = axs[1, 1]
+    ax.set_title("Return Rate by Product", color=TEXT_COLOR, pad=10)
+    ax.bar(ret["product"], ret["returned"], color="#FF6584")
+    ax.grid(color=(1, 1, 1, 0.06), linestyle="-", linewidth=0.5, axis='y')
+    ax.yaxis.set_major_formatter(ticker.PercentFormatter())
+    ax.tick_params(axis='x', rotation=45)
 
-    # Product bar
-    fig.add_trace(go.Bar(
-        x=product["product"], y=product["net_revenue"],
-        marker_color=COLORS[:len(product)], showlegend=False
-    ), row=2, col=1)
-
-    # Return rate bar
-    fig.add_trace(go.Bar(
-        x=ret["product"], y=ret["returned"],
-        marker_color="#FF6584", showlegend=False
-    ), row=2, col=2)
-
-    fig.update_layout(
-        title=dict(text="Sales Intelligence Dashboard — Export Snapshot",
-                   font=dict(size=16, color="#6C63FF")),
-        paper_bgcolor="#1A1D27",
-        plot_bgcolor="#1A1D27",
-        font=dict(family="Arial, sans-serif", color="#EAEAEA", size=11),
-        height=900, width=1400,
-        margin=dict(l=40, r=40, t=80, b=40),
-    )
-    fig.update_xaxes(gridcolor="rgba(255,255,255,0.06)", color="#EAEAEA")
-    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", color="#EAEAEA")
-
-    try:
-        return fig.to_image(format="png", scale=2)
-    except Exception as e:
-        raise RuntimeError(
-            f"PNG export failed. Ensure kaleido>=0.2.1 is installed. Error: {e}"
-        )
+    plt.tight_layout(rect=[0, 0.03, 1, 0.90])
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, facecolor=BG_COLOR, edgecolor='none')
+    plt.close(fig)
+    return buf.getvalue()
