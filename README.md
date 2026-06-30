@@ -85,7 +85,7 @@ Adjust business levers (e.g., Discount Rate, Demand Volume) using sliders to pro
 ![Business Intelligence Section](https://placehold.co/1000x500/png?text=Executive+Summary+%26+Anomalies)
 
 ### Interactive Analysis Section
-![Interactive Analysis Section](https://placehold.co/1000x500/png?text=Business+Explorer+%26+Pivot+Tables)
+![Interactive Analysis Section](assets/business_explorer.png)
 
 *(Note: Replace placeholder images above with actual screenshots of the application before publishing).*
 
