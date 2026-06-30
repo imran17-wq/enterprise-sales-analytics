@@ -17,7 +17,7 @@
 
 ## 📸 Dashboard Preview
 
-![Dashboard Preview](https://placehold.co/1200x600/png?text=Executive+Command+Center+Preview)
+![Dashboard Preview](assets/dashboard_preview.png)
 
 ---
 
