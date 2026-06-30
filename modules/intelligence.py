@@ -387,8 +387,8 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
                 ws.set_column(i, i, min(max(max_len + 2, 12), 40))
 
         def write_sheet(sheet_name, data_df, title=""):
-            ws = writer.sheets.get(sheet_name)
-            data_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2)
+            # Write data only (header=False) starting at row 3 (Excel row 4) to avoid overlapping
+            data_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=3, header=False)
             ws = writer.sheets[sheet_name]
             if title:
                 ws.write(0, 0, title, title_fmt)
@@ -396,6 +396,8 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
             filter_parts = [f"{k.replace('_',' ').title()}: {len(v)} selected" for k, v in filters.items() if v]
             filter_str = "  |  ".join(filter_parts) if filter_parts else "No filters applied"
             ws.write(1, 0, f"Generated from {len(df):,} filtered rows  ·  {filter_str}", meta_fmt)
+            
+            # Write headers manually at row 2 (Excel row 3)
             for col_num, col_name in enumerate(data_df.columns):
                 ws.write(2, col_num, col_name, hdr_fmt)
             auto_col_width(ws, data_df)
@@ -413,19 +415,21 @@ def build_excel_export(df: pd.DataFrame, kpis: dict, filters: dict) -> bytes:
             {"Metric": "Best Region",          "Value": kpis.get("best_region", ""),              "Format": "text"},
             {"Metric": "Best Product",         "Value": kpis.get("best_product", ""),             "Format": "text"},
         ])
-        # Write KPI sheet manually with per-row number formatting
-        kpi_df[["Metric", "Value"]].to_excel(writer, sheet_name="KPI Summary", index=False, startrow=2)
-        ws_kpi = writer.sheets["KPI Summary"]
+        
+        # Write KPI sheet manually to avoid to_excel overlapping
+        ws_kpi = wb.add_worksheet("KPI Summary")
         ws_kpi.write(0, 0, "📊 KPI Summary", title_fmt)
         filter_parts_kpi = [f"{k.replace('_',' ').title()}: {len(v)} selected" for k, v in filters.items() if v]
         ws_kpi.write(1, 0, "Generated from {:,} filtered rows  ·  {}".format(
             len(df), "  |  ".join(filter_parts_kpi) if filter_parts_kpi else "No filters"), meta_fmt)
         ws_kpi.write(2, 0, "Metric", hdr_fmt)
         ws_kpi.write(2, 1, "Value",  hdr_fmt)
-        fmt_map = {"currency": num_fmt, "integer": int_fmt, "percent": num_fmt, "number": num_fmt, "text": txt_fmt}
+        
+        fmt_map = {"currency": num_fmt, "integer": int_fmt, "percent": pct_fmt, "number": num_fmt, "text": txt_fmt}
         for row_i, (_, row) in enumerate(kpi_df.iterrows(), start=3):
             ws_kpi.write(row_i, 0, row["Metric"], txt_fmt)
             ws_kpi.write(row_i, 1, row["Value"],  fmt_map.get(row["Format"], txt_fmt))
+            
         ws_kpi.set_column(0, 0, 28)
         ws_kpi.set_column(1, 1, 22)
 
