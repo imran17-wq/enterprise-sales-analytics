@@ -605,12 +605,16 @@ with tab_overview:
             fig_region.update_layout(**CHART_LAYOUT)
         
         elif viz_region == "Bar Chart":
+            reg_sorted = region_df.sort_values("total_revenue", ascending=False)
+            colors = [REGION_COLORS.get(r, "#6C63FF") for r in reg_sorted["region"]]
             fig_region = px.bar(
-                region_df.sort_values("total_revenue", ascending=False), 
-                x="region", y="total_revenue",
-                color="region", color_discrete_map=REGION_COLORS
+                reg_sorted, 
+                x="region", y="total_revenue"
             )
-            fig_region.update_traces(hovertemplate="<b>%{x}</b><br>Revenue: ₹%{y:,.0f}<extra></extra>")
+            fig_region.update_traces(
+                marker_color=colors,
+                hovertemplate="<b>%{x}</b><br>Revenue: ₹%{y:,.0f}<extra></extra>"
+            )
             fig_region.update_layout(**CHART_LAYOUT, showlegend=False, yaxis=dict(title="Net Revenue (₹)", gridcolor="rgba(255,255,255,0.06)"))
 
         else:
@@ -740,12 +744,17 @@ with tab_overview:
         
         elif viz_cust == "Bar Chart":
             flat_cust_df = df.groupby("customer_type").agg({"net_revenue": "sum"}).reset_index()
+            flat_sorted = flat_cust_df.sort_values("net_revenue", ascending=False)
+            seq = ["#6C63FF", "#43E8D8", "#FF6584", "#F39C12"]
+            colors = [seq[i % len(seq)] for i in range(len(flat_sorted))]
             fig_cust = px.bar(
-                flat_cust_df.sort_values("net_revenue", ascending=False),
-                x="customer_type", y="net_revenue", color="customer_type",
-                color_discrete_sequence=["#6C63FF", "#43E8D8", "#FF6584", "#F39C12"]
+                flat_sorted,
+                x="customer_type", y="net_revenue"
             )
-            fig_cust.update_traces(hovertemplate="<b>%{x}</b><br>Revenue: ₹%{y:,.0f}<extra></extra>")
+            fig_cust.update_traces(
+                marker_color=colors,
+                hovertemplate="<b>%{x}</b><br>Revenue: ₹%{y:,.0f}<extra></extra>"
+            )
             fig_cust.update_layout(**CHART_LAYOUT, showlegend=False, yaxis=dict(title="Net Revenue (₹)", gridcolor="rgba(255,255,255,0.06)"))
         
         else:
@@ -799,17 +808,24 @@ with tab_overview:
             fig_pay.update_layout(**CHART_LAYOUT)
         
         elif viz_pay == "Horizontal Bar Chart":
-            fig_pay = px.bar(pay_df.sort_values("total_revenue", ascending=True), y="payment_method", x="total_revenue", color="payment_method", color_discrete_sequence=PRODUCT_COLORS, orientation="h")
-            fig_pay.update_traces(hovertemplate="<b>%{y}</b><br>Revenue: ₹%{x:,.0f}<extra></extra>")
+            pay_sorted = pay_df.sort_values("total_revenue", ascending=True)
+            colors = [PRODUCT_COLORS[i % len(PRODUCT_COLORS)] for i in range(len(pay_sorted))]
+            fig_pay = px.bar(pay_sorted, y="payment_method", x="total_revenue", orientation="h")
+            fig_pay.update_traces(
+                marker_color=colors,
+                hovertemplate="<b>%{y}</b><br>Revenue: ₹%{x:,.0f}<extra></extra>"
+            )
             fig_pay.update_layout(**CHART_LAYOUT, showlegend=False, xaxis=dict(title="Net Revenue (₹)", gridcolor="rgba(255,255,255,0.06)"))
         
         else:
             # Default Bar Chart
             fig_pay = px.bar(
-                pay_df, x="payment_method", y="total_revenue", color="payment_method",
-                text_auto=".2s", color_discrete_sequence=PRODUCT_COLORS
+                pay_df, x="payment_method", y="total_revenue",
+                text_auto=".2s"
             )
+            colors = [PRODUCT_COLORS[i % len(PRODUCT_COLORS)] for i in range(len(pay_df))]
             fig_pay.update_traces(
+                marker_color=colors,
                 textfont_size=11, marker_line_width=0,
                 hovertemplate="<b>%{x}</b><br>Revenue: ₹%{y:,.0f}<extra></extra>",
             )
