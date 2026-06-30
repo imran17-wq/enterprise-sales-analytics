@@ -79,7 +79,7 @@ Adjust business levers (e.g., Discount Rate, Demand Volume) using sliders to pro
 ![Main Dashboard](assets/dashboard_preview.png)
 
 ### Forecasting Section
-![Forecasting Section](https://placehold.co/1000x500/png?text=Machine+Learning+Forecasting)
+![Forecasting Section](assets/forecasting.png)
 
 ### Business Intelligence Section
 ![Business Intelligence Section](https://placehold.co/1000x500/png?text=Executive+Summary+%26+Anomalies)
