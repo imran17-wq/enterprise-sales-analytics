@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit%20Cloud-FF4B4B?style=for-the-badge&logo=streamlit)](https://imran17-wq-enterprise-sales-analytics-dashboard-w8f2uq.streamlit.app/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://enterprise-sales-analytics.onrender.com)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.35.0-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![Pandas](https://img.shields.io/badge/Pandas-2.0.0-150458?style=for-the-badge&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
@@ -17,7 +17,7 @@
 
 ## 📸 Dashboard Preview
 
-![Dashboard Preview](https://via.placeholder.com/1200x600.png?text=Executive+Command+Center+Preview)
+![Dashboard Preview](https://placehold.co/1200x600/png?text=Executive+Command+Center+Preview)
 
 ---
 
@@ -76,16 +76,16 @@ Adjust business levers (e.g., Discount Rate, Demand Volume) using sliders to pro
 ## 📸 Feature Previews
 
 ### Main Dashboard
-![Main Dashboard](https://via.placeholder.com/1000x500.png?text=Main+Dashboard+KPIs)
+![Main Dashboard](https://placehold.co/1000x500/png?text=Main+Dashboard+KPIs)
 
 ### Forecasting Section
-![Forecasting Section](https://via.placeholder.com/1000x500.png?text=Machine+Learning+Forecasting)
+![Forecasting Section](https://placehold.co/1000x500/png?text=Machine+Learning+Forecasting)
 
 ### Business Intelligence Section
-![Business Intelligence Section](https://via.placeholder.com/1000x500.png?text=Executive+Summary+%26+Anomalies)
+![Business Intelligence Section](https://placehold.co/1000x500/png?text=Executive+Summary+%26+Anomalies)
 
 ### Interactive Analysis Section
-![Interactive Analysis Section](https://via.placeholder.com/1000x500.png?text=Business+Explorer+%26+Pivot+Tables)
+![Interactive Analysis Section](https://placehold.co/1000x500/png?text=Business+Explorer+%26+Pivot+Tables)
 
 *(Note: Replace placeholder images above with actual screenshots of the application before publishing).*
 
