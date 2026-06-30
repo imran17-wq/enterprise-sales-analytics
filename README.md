@@ -1,4 +1,4 @@
-# Enterprise Sales Analytics Platform 🚀
+# Enterprise Sales Analytics Platform 
 
 <div align="center">
 
